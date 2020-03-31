@@ -116,35 +116,47 @@
 (defn prove-all [goals bindings]
   (cond
     (= bindings fail) fail
-    (or (empty? goals) (nil? goals)) (list bindings)
-    :else
-      (mapcat
-        #(prove-all (rest goals) %1)
-        (prove (first goals) bindings))))
+    (or (empty? goals) (nil? goals)) bindings
+    :else (prove (first goals) bindings (rest goals))))
 
-(defn prove [goal bindings]
-  (mapcat
-    (fn [clause]
-      (let [new-clause (rename-vars clause)]
-        (prove-all
-          (clause-body new-clause)
-          (unify goal (clause-head new-clause) bindings))))
-    (get-clauses (predicate goal))))
+(defn prove [goal bindings other-goals]
 
-(defn show-pl-vars [vars bindings]
+  (let [clauses (get-clauses (predicate goal))]
+    (if (seq? clauses)
+      (some
+        (fn [clause]
+          (let [new-clause (rename-vars clause)]
+            (prove-all
+              (concat (clause-body new-clause) other-goals)
+              (unify goal (clause-head new-clause) bindings))))
+        clauses)
+      (apply clauses [(rest goal) bindings other-goals]))))
+
+(defn continue []
+  (case (read-line)
+    ";" true
+    "." nil
+    (do
+      (println "Type ; to see more or . to stop")
+      (flush)
+      (continue))))
+
+(defn show-pl-vars [vars bindings other-goals]
   (if (empty? vars)
-    "Yes.\n"
-    (map #(format "%s = %s;\n", %1, (subst-bindings bindings %1)) vars)))
-
-(defn show-pl-solutions [vars solutions]
-  (if (empty? solutions)
-    "No.\n"
-    (mapcat #(show-pl-vars vars %1) solutions)))
+    (println "Yes")
+    (doseq [var vars]
+      (printf "%s = %s", var, (subst-bindings bindings var)) (flush)))
+  (if (continue)
+    fail
+    (prove-all other-goals bindings)))
 
 (defn top-level [goals]
-  (show-pl-solutions
-    (variables goals)
-    (prove-all goals no-bindings)))
+  (do
+    (swap! database assoc 'cl-clojure.interpreter.interpreter/show-pl-vars show-pl-vars)
+    (prove-all
+      `(~@goals (show-pl-vars ~@(variables goals)))
+      no-bindings)
+    (println "No.")))
 
 (defmacro ?- [& goals]
   `(top-level (list ~@goals)))
